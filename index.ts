@@ -1,8 +1,32 @@
-import { BehaviorSubject, Observable, interval } from "rxjs";
+import { BehaviorSubject, Subscription, Observable, interval } from "rxjs";
 import { take, map, scan, concatMap } from "rxjs/operators";
+
+/*-----------------------------
+TODO: 
+・シーンの一時停止とレジューム
+・バックログ　
+------------------------------*/
 
 const defaultCharacterDelay = 100;
 const defaultWordDelay = 1500;
+
+interface Scene {
+  command: string;
+  scene?: Array<Array<string | number>>;
+  subscription?: Subscription;
+}
+
+const SCENE_STATUS_INITIAL = 'initial';
+const SCENE_STATUS_PLAYING = 'playing';
+const SCENE_STATUS_PAUSED = 'paused';
+const SCENE_STATUS_COMPLETED = 'completed';
+
+const SCENE_COMMAND_NONE = 'none';
+const SCENE_COMMAND_PLAY = 'play';
+const SCENE_COMMAND_PAUSE = 'pause';
+const SCENE_COMMAND_CANCEL = 'cancel'; // Cancel playing
+const SCENE_COMMAND_FINISH = 'finish'; // Successful termination
+
 
 const loadScene = () => {
   // ['word', delayAfterWord, delayAfterCharacter]
@@ -21,55 +45,55 @@ const loadScene = () => {
 
  
 /*------------------------------------
-/ シーンの状態管理
+/ Manage Scene Status
 /------------------------------------ */
-const sceneSubj = new BehaviorSubject({ scene: loadScene(), status: 'start', subscription: null});
+const sceneSubj = new BehaviorSubject({ command: SCENE_COMMAND_PLAY, scene: loadScene(), subscription: null} as Scene);
 
 sceneSubj.pipe(
   scan((current, newscene) => {
-    if(current.status != newscene.status){
-      if(newscene.status == 'start'){
-        console.log('status:',current.status,'=>',newscene.status);
-        current.status = 'start';
-        newscene.status = 'playing';
-
-        console.log('status:',current.status,'=>',newscene.status);
-        current.scene = newscene.scene;
-        current.status = newscene.status;
-        current.subscription = playScene();
+    if(current.command != newscene.command){
+      if(newscene.command == SCENE_COMMAND_PLAY){
+        const newstatus = SCENE_STATUS_PLAYING;
+        console.log('status:',current.status,'=>',newstatus);
+        return {
+          status: newstatus,
+          command: newscene.command,
+          scene: newscene.scene,
+          subscription: playScene()
+        }
       }
-      else if(newscene.status == 'cancel'){
-        console.log('status:',current.status,'=>',newscene.status);
-        current.scene = newscene.scene;
-        current.status = newscene.status;
+      else if(newscene.command == SCENE_COMMAND_CANCEL
+              || newscene.command == SCENE_COMMAND_FINISH){
+        if(newscene.command == SCENE_COMMAND_CANCEL){
+          console.log('Scene has been canceled');
+        }
+        const newstatus = SCENE_STATUS_COMPLETED;
+        console.log('status:',current.status,'=>',newstatus);
         current.subscription.unsubscribe();
-        current.subscription = null;
+        return {
+          status: newstatus,
+          command: newscene.command,
+          scene: [],
+          subscription: null
+        }
       }
       else{
-        console.log('status:',current.status,'=>',newscene.status);
-        current = newscene;
+        console.log('invalid command:',newscene.command);
       }
     }     
     return current
   },
-  {
+  { 
     scene: [],
-    status: 'stop',
+    command: SCENE_COMMAND_NONE,
+    status: SCENE_STATUS_INITIAL,
     subscription: null
   })
 ).subscribe();
 
-// シーン再生の中断テスト
-setTimeout(()=> sceneSubj.next(
-    {
-      scene: [],
-      status: 'cenceled',
-      subscription: null
-    }), 7000);
-
 
 /*------------------------------------
-/ シーンの再生
+/ Play Scene
 /------------------------------------ */
 function playScene(){
 
@@ -91,7 +115,7 @@ function playScene(){
     const sequential = function(array) {
       array.reduce((promise, val) => {
         return promise.then(() => {
-            if(sceneSubj.getValue().status == 'cenceled'){
+            if(sceneSubj.getValue().command == SCENE_COMMAND_CANCEL){
               throw new Error();
             }
           }
@@ -105,19 +129,14 @@ function playScene(){
       .then(() => {
         sceneSubj.next(
           {
-            scene: [],
-            status: 'completed',
-            subscription: null
+            command: SCENE_COMMAND_FINISH,
           });
         }
       )
       .catch(() => {
-        console.log('scene has been stopped by cancel command');
         sceneSubj.next(
           {
-          scene: [],
-          status: 'completed',
-          subscription: null
+            command: SCENE_COMMAND_CANCEL,
           });
       })
     };
@@ -154,3 +173,12 @@ function playScene(){
 };
 
 
+
+
+// Test for cancel command
+/*
+setTimeout(()=> sceneSubj.next(
+    {
+      command: SCENE_COMMAND_CANCEL,
+    }), 7000);
+*/
