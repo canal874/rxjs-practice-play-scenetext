@@ -18,7 +18,7 @@ const loadScene = () => {
   ];
 };
 
-const sceneSubj = new BehaviorSubject(loadScene());
+const sceneSubj = new BehaviorSubject({ scene: loadScene(), status: 'playing'});
 
 
 
@@ -49,7 +49,7 @@ const playScene = () => {
         );
       }, Promise.resolve());
     };
-    sequential(sceneSubj.getValue());
+    sequential(sceneSubj.getValue().scene);
   });
 
 
@@ -77,10 +77,29 @@ const playScene = () => {
   );
 
   const subscription = chatterObs.subscribe(
-    out => (document.body.innerHTML += out,
-    () => {}, 
-    console.log('chatterObs: completed'))
+    out => (document.body.innerHTML += out)
   );
 };
 
-sceneSubj.subscribe(playScene(),()=>{},console.log('sceneSubj: completed'));
+sceneSubj.pipe(
+  scan((current, newscene) => {
+    if(current.scene == newscene.scene){
+      if(current.status != newscene.status){
+        console.log(current.status);
+        current.status = newscene.status;
+      }
+    }
+    else{
+      current.scene = newscene.scene;
+      current.status = newscene.status;
+      playScene();
+    }
+    return current
+  },
+  {
+    scene: [],
+    status: 'stop'
+  }
+
+  )
+).subscribe();
