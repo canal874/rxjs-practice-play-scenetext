@@ -27,27 +27,31 @@ const SCENE_COMMAND_PAUSE = 'pause';
 const SCENE_COMMAND_CANCEL = 'cancel'; // Cancel playing
 const SCENE_COMMAND_FINISH = 'finish'; // Successful termination
 
-
-const loadScene = () => {
+const SCENES =  [
   // ['word', delayAfterWord, delayAfterCharacter]
-  return [
-    ["それは、", 0, 100],
-    ["まるで"],
-    ["夢のようで、"],
-    ["あれ、覚めない、覚めないぞ、", 3000],
-    ["って思っていて、"],
-    ["それがいつまでも続いて。"],
-    ["・・", 2000, 500],
-    ["まだ続いている。"]
-  ];
-};
+    [
+      ["それは、", 0, 100],
+      ["まるで"],
+      ["夢のようで、"],
+      ["あれ、覚めない、覚めないぞ、", 3000],
+      ["って思っていて、"]
+    ],
+    [
+      ["それがいつまでも続いて。"],
+      ["・・", 2000, 500],
+      ["まだ続いている。"]
+    ]
+];
 
+const loadNextScene = () => {
+  return SCENES.shift();
+};
 
  
 /*------------------------------------
 / Manage Scene Status
 /------------------------------------ */
-const sceneSubj = new BehaviorSubject({ command: SCENE_COMMAND_PLAY, scene: loadScene(), subscription: null} as Scene);
+const sceneSubj = new BehaviorSubject({ command: SCENE_COMMAND_PLAY, scene: loadNextScene(), subscription: null} as Scene);
 
 sceneSubj.pipe(
   scan((current, newscene) => {
@@ -62,14 +66,13 @@ sceneSubj.pipe(
           subscription: playScene()
         }
       }
-      else if(newscene.command == SCENE_COMMAND_CANCEL
-              || newscene.command == SCENE_COMMAND_FINISH){
-        if(newscene.command == SCENE_COMMAND_CANCEL){
-          console.log('Scene has been canceled');
-        }
+      else if(newscene.command == SCENE_COMMAND_CANCEL){
+        console.log('Scene has been canceled');
+      
         const newstatus = SCENE_STATUS_COMPLETED;
         console.log('status:',current.status,'=>',newstatus);
         current.subscription.unsubscribe();
+      
         return {
           status: newstatus,
           command: newscene.command,
@@ -77,11 +80,24 @@ sceneSubj.pipe(
           subscription: null
         }
       }
+      else if(newscene.command == SCENE_COMMAND_FINISH){
+        const newstatus = SCENE_STATUS_COMPLETED;
+        console.log('status:',current.status,'=>',newstatus);
+        current.subscription.unsubscribe();
+
+        return {
+          status: newstatus,
+          command: newscene.command,
+          scene: [],
+          subscription: null
+        }
+
+      }
       else{
         console.log('invalid command:',newscene.command);
+        return current;
       }
     }     
-    return current
   },
   { 
     scene: [],
@@ -131,6 +147,12 @@ function playScene(){
           {
             command: SCENE_COMMAND_FINISH,
           });
+        sceneSubj.next(
+          {
+            command: SCENE_COMMAND_PLAY, 
+            scene: loadNextScene(), 
+            subscription: null} as Scene);
+          }
         }
       )
       .catch(() => {
