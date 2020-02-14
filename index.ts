@@ -4,6 +4,8 @@ import { take, map, scan, concatMap } from "rxjs/operators";
 /*-----------------------------
 TODO: 
 ・次シーンを呼んだ後、CANCELすると動作がおかしい。
+・sceneSubjの副作用が複数回起きないよう注意する。
+　参考： https://www.learnrxjs.io/learn-rxjs/operators/multicasting/share
 ・シーンの一時停止とレジューム
 ・バックログ　
 ------------------------------*/
@@ -144,6 +146,8 @@ sceneSubj.pipe(
     subscription: null
   })
 ).subscribe();
+
+
 
 
 /*------------------------------------
