@@ -18,11 +18,60 @@ const loadScene = () => {
   ];
 };
 
-const sceneSubj = new BehaviorSubject({ scene: loadScene(), status: 'playing'});
+
+ 
+/*------------------------------------
+/ シーンの状態管理
+/------------------------------------ */
+const sceneSubj = new BehaviorSubject({ scene: loadScene(), status: 'start', subscription: null});
+
+sceneSubj.pipe(
+  scan((current, newscene) => {
+    if(current.status != newscene.status){
+      if(newscene.status == 'start'){
+        console.log('status:',current.status,'=>',newscene.status);
+        current.status = 'start';
+        newscene.status = 'playing';
+
+        console.log('status:',current.status,'=>',newscene.status);
+        current.scene = newscene.scene;
+        current.status = newscene.status;
+        current.subscription = playScene();
+      }
+      else if(newscene.status == 'cancel'){
+        console.log('status:',current.status,'=>',newscene.status);
+        current.scene = newscene.scene;
+        current.status = newscene.status;
+        current.subscription.unsubscribe();
+        current.subscription = null;
+      }
+      else{
+        console.log('status:',current.status,'=>',newscene.status);
+        current = newscene;
+      }
+    }     
+    return current
+  },
+  {
+    scene: [],
+    status: 'stop',
+    subscription: null
+  })
+).subscribe();
+
+// シーン再生の中断テスト
+setTimeout(()=> sceneSubj.next(
+    {
+      scene: [],
+      status: 'cenceled',
+      subscription: null
+    }), 7000);
 
 
-
-const playScene = () => {
+/*------------------------------------
+/ シーンの再生
+/------------------------------------ */
+function playScene(){
 
   // 入力されたscene内のセリフについて、
   // セリフ間に指定秒のディレイを入れつつ順に再生
@@ -35,23 +84,46 @@ const playScene = () => {
         setTimeout(() => {
           resolve();
         }, waitMSec);
-      });
+      }); 
     };
 
     // 配列を順番にPromiseで処理
     const sequential = function(array) {
-      return array.reduce((promise, val) => {
-        return promise.then(res =>
-          nextword(val.length > 1 ? val[1] : defaultWordDelay, {
-            str: val.length > 0 ? val[0] : "",
-            interval: val.length > 2 ? val[2] : defaultCharacterDelay
-          })
-        );
-      }, Promise.resolve());
+      array.reduce((promise, val) => {
+        return promise.then(() => {
+            if(sceneSubj.getValue().status == 'cenceled'){
+              throw new Error();
+            }
+          }
+        ).then(res => 
+            nextword(val.length > 1 ? val[1] : defaultWordDelay, {
+              str: val.length > 0 ? val[0] : "",
+              interval: val.length > 2 ? val[2] : defaultCharacterDelay
+            }) 
+        )
+      }, Promise.resolve())
+      .then(() => {
+        sceneSubj.next(
+          {
+            scene: [],
+            status: 'completed',
+            subscription: null
+          });
+        }
+      )
+      .catch(() => {
+        console.log('scene has been stopped by cancel command');
+        sceneSubj.next(
+          {
+          scene: [],
+          status: 'completed',
+          subscription: null
+          });
+      })
     };
     sequential(sceneSubj.getValue().scene);
   });
-
+ 
 
   // 入力されたセリフについて
   // 文字間に指定秒のディレイを入れつつ一文字ずつ表示
@@ -76,30 +148,9 @@ const playScene = () => {
     )
   );
 
-  const subscription = chatterObs.subscribe(
+  return chatterObs.subscribe(
     out => (document.body.innerHTML += out)
   );
 };
 
-sceneSubj.pipe(
-  scan((current, newscene) => {
-    if(current.scene == newscene.scene){
-      if(current.status != newscene.status){
-        console.log(current.status);
-        current.status = newscene.status;
-      }
-    }
-    else{
-      current.scene = newscene.scene;
-      current.status = newscene.status;
-      playScene();
-    }
-    return current
-  },
-  {
-    scene: [],
-    status: 'stop'
-  }
 
-  )
-).subscribe();
