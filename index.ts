@@ -1,6 +1,8 @@
 import { BehaviorSubject, Subscription, Observable, interval } from "rxjs";
 import { take, map, scan, concatMap } from "rxjs/operators";
 
+console.clear();
+
 /*-----------------------------
 TODO: 
 ・シーンの一時停止とレジューム
@@ -67,14 +69,81 @@ const SEQUENCE = [
 ]
 
 
-
-
-
 const loadNextCut = () => {
   return SCENE01.shift();
 };
 
- 
+
+/*------------------------------------
+/ Pushable Observable Wrapper Class
+/------------------------------------ */
+class PushableObservableWrapper {
+    queue : Array<any> = [];
+    observable : Observable<any> = null;
+
+    constructor(queue?: Array<any>) {
+      if(queue) this.queue = queue;
+      this.observable = this.createObservable();
+    };
+    
+    createObservable = () => {
+      return new Observable(subscriber => {
+        let isPlaying = true;
+
+        // Outputs an Action, then waits waitMSec
+        for(let i=0;i<3;i++){
+
+          const val = this.queue.shift();
+          if(val){
+            const waitMSec = val.length > 1 ? val[1] : defaultWordDelay;
+            const action = {
+                        str: val.length > 0 ? val[0] : "",
+                        interval: val.length > 2 ? val[2] : defaultCharacterDelay
+                    } as SpeechAction;
+        
+            subscriber.next(action);
+            // wait(3);  
+          }
+          else {
+            // A Cut has been completed 
+            if(isPlaying){
+              sceneSubj.next(
+                {
+                  command: SCENE_COMMAND_PUSH_CUT, 
+                  cut: loadNextCut(), 
+                } as SceneCommand);
+            }
+          }
+        };
+    
+        // Provide a way of canceling and disposing the interval resource
+        return function unsubscribe() {
+          isPlaying = false;
+        };
+      });
+    };
+
+    push(item) {
+      if(item instanceof Array){
+        this.queue.push(...item);
+      }
+      else{
+       this.queue.push(item);
+      }
+    };
+    unshift(item) {
+      this.queue.unshift(item);
+    };
+    pop(){
+      return this.queue.pop();
+    };
+    shift(){
+      return this.queue.shift();
+    }
+}
+
+
+
 /*------------------------------------
 / Manage Scene Status
 /------------------------------------ */
@@ -85,7 +154,6 @@ const sceneSubj = new BehaviorSubject({
 
 sceneSubj.pipe(
   scan((scene: SceneStatus, newcommand: SceneCommand) => {
-
 
     // PLAY
     if(newcommand.command == SCENE_COMMAND_PLAY
@@ -201,52 +269,12 @@ function playActions(){
 
   // Play ations in a Cut
   // inserting N ms dekay after each action. 
-  const actionsSubj = new Observable(subscriber => {
-        let isPlaying = true;
-
-
-    const actionStream = sceneSubj.getValue().cut;
-    
-    const sleep = msec => new Promise(resolve => setTimeout(resolve, msec));
-
-    // Outputs an Action, then waits waitMSec
-    const nextword = async () => {
-      const val = actionStream.shift;
-      if(val){
-        const waitMSec = val.length > 1 ? val[1] : defaultWordDelay;
-        const action = {
-                        str: val.length > 0 ? val[0] : "",
-                        interval: val.length > 2 ? val[2] : defaultCharacterDelay
-                    } as SpeechAction;
-        await subscriber.next(action);
-        await sleep(waitMSec);
-      }
-      else {
-        // A Cut has been completed 
-        if(isPlaying){
-          sceneSubj.next(
-            {
-              command: SCENE_COMMAND_PUSH_CUT, 
-              cut: loadNextCut(), 
-            } as SceneCommand);
-        }
-      }
-    };
-    
-    for(i=0;i<3;i++){
-      console.log('hello');
-      nextword();
-    }
-    // Provide a way of canceling and disposing the interval resource
-    return function unsubscribe() {
-      isPlaying = false;
-    };
-  });
- 
+  const actionsSubjWrapper = new PushableObservableWrapper();
+  actionsSubjWrapper.push(sceneSubj.getValue().cut);
 
   // Play words in a cut
   // inserting delay after each character
-  const chatterObs = actionsSubj.pipe(
+  const chatterObs = actionsSubjWrapper.observable.pipe(
     concatMap(input =>
       interval((input as SpeechAction).interval).pipe(
         // output characters at input.interval
