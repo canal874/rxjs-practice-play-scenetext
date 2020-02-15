@@ -204,7 +204,7 @@ function playActions(){
   const actionsSubj = new Observable(subscriber => {
         let isPlaying = true;
 
-/*
+
     const actionStream = sceneSubj.getValue().cut;
     
     const sleep = msec => new Promise(resolve => setTimeout(resolve, msec));
@@ -218,7 +218,7 @@ function playActions(){
                         str: val.length > 0 ? val[0] : "",
                         interval: val.length > 2 ? val[2] : defaultCharacterDelay
                     } as SpeechAction;
-        subscriber.next(action);
+        await subscriber.next(action);
         await sleep(waitMSec);
       }
       else {
@@ -233,11 +233,10 @@ function playActions(){
       }
     };
     
-    while(isPlaying){
+    for(i=0;i<3;i++){
       console.log('hello');
       nextword();
     }
-    */
     // Provide a way of canceling and disposing the interval resource
     return function unsubscribe() {
       isPlaying = false;
