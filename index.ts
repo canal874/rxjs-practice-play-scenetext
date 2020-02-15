@@ -4,7 +4,6 @@ import { take, map, scan, concatMap } from "rxjs/operators";
 /*-----------------------------
 TODO: 
 ・シーンの一時停止とレジューム
-・バックログ　
 ------------------------------*/
 
 const defaultCharacterDelay = 100;
@@ -204,35 +203,23 @@ function playActions(){
   // inserting N ms dekay after each action. 
   const actionsSubj = new Observable(subscriber => {
 
-    // Promise that outputs an Action, then waits waitMSec
-    const nextword = (val) => {
-      const waitMSec = val.length > 1 ? val[1] : defaultWordDelay;
-      const action = {
+    const actionStream = sceneSubj.getValue().cut;
+    
+    const sleep = msec => new Promise(resolve => setTimeout(resolve, msec));
+
+    // Outputs an Action, then waits waitMSec
+    const nextword = async () => {
+      const val = actionStream.shift;
+      if(val){
+        const waitMSec = val.length > 1 ? val[1] : defaultWordDelay;
+        const action = {
                         str: val.length > 0 ? val[0] : "",
                         interval: val.length > 2 ? val[2] : defaultCharacterDelay
                     } as SpeechAction;
-      return new Promise(resolve => {
-        // output an action
         subscriber.next(action);
-        setTimeout(() => {
-          resolve();
-        }, waitMSec);
-      }); 
-    };
-
-    let isPlaying = true;
-    // Sequential execution of nextword Promises
-    const sequential = function(cut) {
-      cut.reduce((promise, action) => {
-        return promise.then(() => {
-            if(!isPlaying){
-              throw new Error();
-            }
-            return nextword(action)
-          } 
-        )
-      }, Promise.resolve())
-      .then(() => {
+        await sleep(waitMSec);
+      }
+      else {
         // A Cut has been completed 
         if(isPlaying){
           sceneSubj.next(
@@ -241,10 +228,14 @@ function playActions(){
               cut: loadNextCut(), 
             } as SceneCommand);
         }
-      });
+      }
     };
-    sequential(sceneSubj.getValue().cut);
     
+    let isPlaying = true;
+    while(isPlaying){
+      console.log('hello');
+      nextword();
+    }
     // Provide a way of canceling and disposing the interval resource
     return function unsubscribe() {
       isPlaying = false;
