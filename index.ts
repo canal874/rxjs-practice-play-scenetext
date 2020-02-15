@@ -5,6 +5,10 @@ console.clear();
 
 /*-----------------------------
 TODO: 
+・PushableObservableWrapper の setIntervalで処理している箇所について
+　queueが空なら一時停止する
+　並行処理
+　アクションの開始時刻のオフセット
 ・シーンの一時停止とレジューム
 ------------------------------*/
 
@@ -91,8 +95,7 @@ class PushableObservableWrapper {
         let isPlaying = true;
 
         // Outputs an Action, then waits waitMSec
-        for(let i=0;i<3;i++){
-
+        setInterval(() => {
           const val = this.queue.shift();
           if(val){
             const waitMSec = val.length > 1 ? val[1] : defaultWordDelay;
@@ -111,10 +114,13 @@ class PushableObservableWrapper {
                 {
                   command: SCENE_COMMAND_PUSH_CUT, 
                   cut: loadNextCut(), 
-                } as SceneCommand);
+                } as SceneCommand);           
+            }
+            else{
+              
             }
           }
-        };
+        }, 1000);
     
         // Provide a way of canceling and disposing the interval resource
         return function unsubscribe() {
