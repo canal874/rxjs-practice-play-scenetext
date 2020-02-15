@@ -12,14 +12,19 @@ const defaultWordDelay = 1500;
 
 interface SceneCommand {
   command: string;
-  cuts?: Array<Array<string | number>>;
+  cut?: Array<Array<string | number>>;
 }
 
 interface SceneStatus {
-   status: string;
-   previous_command: string;
-   cuts: Array<Array<string | number>>;
-   subscription: Subscription
+  status: string;
+  previous_command: string;
+  cut: Array<Array<string | number>>;
+  subscription: Subscription
+}
+
+interface SpeechAction {
+  str: string;
+  interval: number;
 }
 
 const SCENE_STATUS_INITIAL = 'initial';
@@ -74,7 +79,10 @@ const loadNextCut = () => {
 /*------------------------------------
 / Manage Scene Status
 /------------------------------------ */
-const sceneSubj = new BehaviorSubject({ command: SCENE_COMMAND_PLAY, cuts: loadNextCut()} as SceneCommand);
+const sceneSubj = new BehaviorSubject({
+   command: SCENE_COMMAND_PLAY,
+   cut: loadNextCut()
+  } as SceneCommand);
 
 sceneSubj.pipe(
   scan((scene: SceneStatus, newcommand: SceneCommand) => {
@@ -84,11 +92,11 @@ sceneSubj.pipe(
     if(newcommand.command == SCENE_COMMAND_PLAY
                && scene.status != SCENE_STATUS_PLAYING ){
 
-      if(newcommand.cuts === undefined){
+      if(newcommand.cut === undefined){
         console.log('Error: scene is undefined. ');
         return scene;
       }
-      else if(newcommand.cuts.length == 0){
+      else if(newcommand.cut.length == 0){
         console.log('All cuts have been played. ');
 
         // Stop to subscribe chatterObs
@@ -100,7 +108,7 @@ sceneSubj.pipe(
         return {
           status: newstatus,
           previous_command: newcommand.command,
-          cuts: [],
+          cut: [],
           subscription: null
         }
       }
@@ -110,7 +118,7 @@ sceneSubj.pipe(
         return {
           status: newstatus,
           previous_command: newcommand.command,
-          cuts: newcommand.cuts,
+          cut: newcommand.cut,
           subscription: playActions()
         };
       }
@@ -121,11 +129,11 @@ sceneSubj.pipe(
     if(newcommand.command == SCENE_COMMAND_PUSH_CUT
        && ( scene.status == SCENE_STATUS_PLAYING || scene.status == SCENE_STATUS_PAUSED )){
 
-      if(newcommand.cuts === undefined){
+      if(newcommand.cut === undefined){
         console.log('Error: scene is undefined. ');
         return scene;
       }
-      else if(newcommand.cuts.length == 0){
+      else if(newcommand.cut.length == 0){
         console.log('All cuts have been played. ');
 
         const newstatus = SCENE_STATUS_COMPLETED;
@@ -134,7 +142,7 @@ sceneSubj.pipe(
         return {
           status: newstatus,
           previous_command: newcommand.command,
-          cuts: [],
+          cut: [],
           subscription: null
         }
       }
@@ -142,7 +150,7 @@ sceneSubj.pipe(
         return {
           status: scene.status,
           previous_command: newcommand.command,
-          cuts: newcommand.cuts,
+          cut: newcommand.cut,
           subscription: playActions()
         };
       }
@@ -165,7 +173,7 @@ sceneSubj.pipe(
       return {
         status: newstatus,
         previous_command: newcommand.command,
-        cuts: [],
+        cut: [],
         subscription: null
       }
     }
@@ -177,9 +185,9 @@ sceneSubj.pipe(
     }
   },
   { 
-    cuts: [],
-    previous_command: SCENE_COMMAND_NONE,
     status: SCENE_STATUS_INITIAL,
+    previous_command: SCENE_COMMAND_NONE,
+    cut: [],
     subscription: null
   })
 ).subscribe();
@@ -197,7 +205,12 @@ function playActions(){
   const actionsSubj = new Observable(subscriber => {
 
     // Promise that outputs an Action, then waits waitMSec
-    const nextword = (waitMSec, action) => {
+    const nextword = (val) => {
+      const waitMSec = val.length > 1 ? val[1] : defaultWordDelay;
+      const action = {
+                        str: val.length > 0 ? val[0] : "",
+                        interval: val.length > 2 ? val[2] : defaultCharacterDelay
+                    } as SpeechAction;
       return new Promise(resolve => {
         // output an action
         subscriber.next(action);
@@ -209,18 +222,13 @@ function playActions(){
 
     let isPlaying = true;
     // Sequential execution of nextword Promises
-    const sequential = function(array) {
-      array.reduce((promise, val) => {
+    const sequential = function(cut) {
+      cut.reduce((promise, action) => {
         return promise.then(() => {
             if(!isPlaying){
               throw new Error();
             }
-            return nextword(
-              val.length > 1 ? val[1] : defaultWordDelay, 
-              {
-                str: val.length > 0 ? val[0] : "",
-                interval: val.length > 2 ? val[2] : defaultCharacterDelay
-              })
+            return nextword(action)
           } 
         )
       }, Promise.resolve())
@@ -230,12 +238,12 @@ function playActions(){
           sceneSubj.next(
             {
               command: SCENE_COMMAND_PUSH_CUT, 
-              cuts: loadNextCut(), 
+              cut: loadNextCut(), 
             } as SceneCommand);
         }
       });
     };
-    sequential(sceneSubj.getValue().cuts);
+    sequential(sceneSubj.getValue().cut);
     
     // Provide a way of canceling and disposing the interval resource
     return function unsubscribe() {
@@ -248,20 +256,20 @@ function playActions(){
   // inserting delay after each character
   const chatterObs = actionsSubj.pipe(
     concatMap(input =>
-      interval(input.interval).pipe(
-        // 入力文字列を input.interval 間隔で一文字ずつ表示する
+      interval((input as SpeechAction).interval).pipe(
+        // output characters at input.interval
         scan(
           (state, count) => ({
             arr: state.arr,
-            i: count % input.str.length
+            i: count % (input as SpeechAction).str.length
           }),
           {
-            arr: input.str.split(""),
+            arr: (input as SpeechAction).str.split(""),
             i: 0
           }
         ),
         map(state => state.arr[state.i]),
-        take(input.str.length)
+        take((input as SpeechAction).str.length)
       )
     )
   ).subscribe(
@@ -275,8 +283,9 @@ function playActions(){
 
 
 // Test for cancel command
-
+/*
 setTimeout(()=> sceneSubj.next(
     {
       command: SCENE_COMMAND_STOP,
     }), 4000);
+*/
