@@ -192,7 +192,7 @@ sceneSubj.pipe(
 /------------------------------------ */
 function playActions(){
 
-  // Playing Actions in a Cut
+  // Play ations in a Cut
   // inserting N ms dekay after each action. 
   const actionsSubj = new Observable(subscriber => {
 
@@ -244,8 +244,8 @@ function playActions(){
   });
  
 
-  // 入力されたセリフについて
-  // 文字間に指定秒のディレイを入れつつ一文字ずつ表示
+  // Play words in a cut
+  // inserting delay after each character
   const chatterObs = actionsSubj.pipe(
     concatMap(input =>
       interval(input.interval).pipe(
