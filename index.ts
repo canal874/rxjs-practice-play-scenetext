@@ -16,6 +16,13 @@ interface SceneCommand {
   cuts?: Array<Array<string | number>>;
 }
 
+interface SceneStatus {
+   status: string;
+   pervious_command: string;
+   cuts: Array<Array<string | number>>;
+   subscription: Subscription
+}
+
 const SCENE_STATUS_INITIAL = 'initial';
 const SCENE_STATUS_PLAYING = 'playing';
 const SCENE_STATUS_PAUSED = 'paused';
@@ -27,9 +34,10 @@ const SCENE_COMMAND_PAUSE = 'pause';
 const SCENE_COMMAND_CANCEL = 'cancel'; // Cancel playing
 const SCENE_COMMAND_FINISH = 'finish'; // Successful termination
 
- 
- // ['word', delayAfterWord, delayAfterCharacter]
+// CUT: sequence of ACTIONS
 const CUT01 = [
+  // ACTION
+  // ['word', delayAfterWord, delayAfterCharacter]
   ["それは、", 0, 100],
   ["まるで"],
   ["夢のようで、"],
@@ -43,12 +51,14 @@ const CUT02 = [
   ["まだ続いている。"]
 ];
 
+// SCENE: sequence of CUTS
 const SCENE01 =  [
   CUT01,
   CUT02,
   []
 ];
 
+// SEQUENCE: sequence of SCENES
 const SEQUENCE = [
   SCENE01
 ]
@@ -68,16 +78,16 @@ const loadNextCut = () => {
 const sceneSubj = new BehaviorSubject({ command: SCENE_COMMAND_PLAY, cuts: loadNextCut()} as SceneCommand);
 
 sceneSubj.pipe(
-  scan((scene, newcommand) => {
+  scan((scene: SceneStatus, newcommand: SceneCommand) => {
 
-    // SCENE_COMMAND の入力で、scene の状態は変わる。
-    // 連続した同じ SCENE_COMMAND は副作用を二度実行しないよう無視する。
+    // scene must be changed by newcommand,
+    // except for consecutive same commands.
     if(scene.previous_command == newcommand.command){
-      console.log('The same command is ignored.',newcommand.command);
+      console.log('Consecutive same command is ignored.',newcommand.command);
       return scene;
     }
     else{
-      console.log('# Command:',newcommand.command);
+//      console.log('# Command:',newcommand.command);
     }
 
     // PLAY
@@ -113,46 +123,49 @@ sceneSubj.pipe(
       }
     }
     // CANCEL
-    else if(newscommand.command == SCENE_COMMAND_CANCEL
-              && (current.status == SCENE_STATUS_PLAYING
-                  || current.status == SCENE_STATUS_PAUSED )){
+    else if(newcommand.command == SCENE_COMMAND_CANCEL
+              && (scene.status == SCENE_STATUS_PLAYING
+                  || scene.status == SCENE_STATUS_PAUSED )){
 
-        console.log('Scene has been canceled');
+      console.log('Scene has been canceled');
       
-        const newstatus = SCENE_STATUS_COMPLETED;
-        console.log('status:',current.status,'=>',newstatus);
-        current.subscription.unsubscribe();
+      const newstatus = SCENE_STATUS_COMPLETED;
+      console.log('status:',scene.status,'=>',newstatus);
+
+      // Stop to subscribe chatterObs
+      scene.subscription.unsubscribe();      
       
-        return {
-          status: newstatus,
-          command: newscene.command,
-          scene: [],
-          subscription: null
-        }
+      return {
+        status: newstatus,
+        previous_command: newcommand.command,
+        cuts: [],
+        subscription: null
       }
-      // FINISH
-      else if(newscene.command == SCENE_COMMAND_FINISH 
-        && current.status != SCENE_STATUS_COMPLETED){
+    }
+    // FINISH
+    else if(newcommand.command == SCENE_COMMAND_FINISH 
+              && scene.status != SCENE_STATUS_COMPLETED){
         const newstatus = SCENE_STATUS_COMPLETED;
-        console.log('status:',current.status,'=>',newstatus);
-        current.subscription.unsubscribe();
+        console.log('status:',scene.status,'=>',newstatus);
+      
+        // (Just to be sure)
+        // Stop to subscribe chatteObs
+        scene.subscription.unsubscribe();
 
         return {
           status: newstatus,
-          command: newscene.command,
-          scene: [],
+          previous_command: newcommand.command,
+          cuts: [],
           subscription: null
         };
       }
-      else{
-        console.log('invalid command:',newscene.command,',current status:',current.status);
-        return current;
-      }
+    else{
+      console.log('invalid command:',newcommand.command,',current status:',scene.status);
+        return scene;
     }
-
   },
   { 
-    scene: [],
+    cuts: [],
     previous_command: SCENE_COMMAND_NONE,
     status: SCENE_STATUS_INITIAL,
     subscription: null
@@ -184,14 +197,16 @@ function playScene(){
     // 配列を順番にPromiseで処理
     const sequential = function(array) {
       array.reduce((promise, val) => {
-        return promise.then(res => {
+        return promise.then(() => {
             if(sceneSubj.getValue().command == SCENE_COMMAND_CANCEL){
               throw new Error();
             }
-            return nextword(val.length > 1 ? val[1] : defaultWordDelay, {
-              str: val.length > 0 ? val[0] : "",
-              interval: val.length > 2 ? val[2] : defaultCharacterDelay
-            })
+            return nextword(
+              val.length > 1 ? val[1] : defaultWordDelay, 
+              {
+                str: val.length > 0 ? val[0] : "",
+                interval: val.length > 2 ? val[2] : defaultCharacterDelay
+              })
           } 
         )
       }, Promise.resolve())
