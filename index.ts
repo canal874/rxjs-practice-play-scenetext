@@ -202,7 +202,9 @@ function playActions(){
   // Play ations in a Cut
   // inserting N ms dekay after each action. 
   const actionsSubj = new Observable(subscriber => {
+        let isPlaying = true;
 
+/*
     const actionStream = sceneSubj.getValue().cut;
     
     const sleep = msec => new Promise(resolve => setTimeout(resolve, msec));
@@ -231,11 +233,11 @@ function playActions(){
       }
     };
     
-    let isPlaying = true;
     while(isPlaying){
       console.log('hello');
       nextword();
     }
+    */
     // Provide a way of canceling and disposing the interval resource
     return function unsubscribe() {
       isPlaying = false;
