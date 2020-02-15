@@ -3,7 +3,6 @@ import { take, map, scan, concatMap } from "rxjs/operators";
 
 /*-----------------------------
 TODO: 
-・次シーンを呼んだ後、CANCELすると動作がおかしい。
 ・シーンの一時停止とレジューム
 ・バックログ　
 ------------------------------*/
@@ -18,7 +17,7 @@ interface SceneCommand {
 
 interface SceneStatus {
    status: string;
-   pervious_command: string;
+   previous_command: string;
    cuts: Array<Array<string | number>>;
    subscription: Subscription
 }
@@ -30,6 +29,7 @@ const SCENE_STATUS_COMPLETED = 'completed';
 
 const SCENE_COMMAND_NONE = 'none';
 const SCENE_COMMAND_PLAY = 'play';
+const SCENE_COMMAND_PUSH_CUT = 'push_cut'; // Add new cut after the last cut
 const SCENE_COMMAND_PAUSE = 'pause';
 const SCENE_COMMAND_CANCEL = 'cancel'; // Cancel playing
 const SCENE_COMMAND_FINISH = 'finish'; // Successful termination
@@ -80,15 +80,6 @@ const sceneSubj = new BehaviorSubject({ command: SCENE_COMMAND_PLAY, cuts: loadN
 sceneSubj.pipe(
   scan((scene: SceneStatus, newcommand: SceneCommand) => {
 
-    // scene must be changed by newcommand,
-    // except for consecutive same commands.
-    if(scene.previous_command == newcommand.command){
-      console.log('Consecutive same command is ignored.',newcommand.command);
-      return scene;
-    }
-    else{
-//      console.log('# Command:',newcommand.command);
-    }
 
     // PLAY
     if(newcommand.command == SCENE_COMMAND_PLAY
@@ -122,6 +113,40 @@ sceneSubj.pipe(
         };
       }
     }
+
+
+    // PUSH CUT
+    if(newcommand.command == SCENE_COMMAND_PUSH_CUT
+       && ( scene.status == SCENE_STATUS_PLAYING || scene.status == SCENE_STATUS_PAUSED )){
+
+      if(newcommand.cuts === undefined){
+        console.log('Error: scene is undefined. ');
+        return scene;
+      }
+      else if(newcommand.cuts.length == 0){
+        console.log('All cuts have been played. ');
+
+        const newstatus = SCENE_STATUS_COMPLETED;
+        console.log('status:',scene.status,'=>',newstatus);
+
+        return {
+          status: newstatus,
+          previous_command: newcommand.command,
+          cuts: [],
+          subscription: null
+        }
+      }
+      else{
+        return {
+          status: scene.status,
+          previous_command: newcommand.command,
+          cuts: newcommand.cuts,
+          subscription: playScene()
+        };
+      }
+    }
+ 
+
     // CANCEL
     else if(newcommand.command == SCENE_COMMAND_CANCEL
               && (scene.status == SCENE_STATUS_PLAYING
@@ -142,13 +167,14 @@ sceneSubj.pipe(
         subscription: null
       }
     }
+
+
     // FINISH
     else if(newcommand.command == SCENE_COMMAND_FINISH 
               && scene.status != SCENE_STATUS_COMPLETED){
         const newstatus = SCENE_STATUS_COMPLETED;
         console.log('status:',scene.status,'=>',newstatus);
       
-        // (Just to be sure)
         // Stop to subscribe chatteObs
         scene.subscription.unsubscribe();
 
@@ -158,7 +184,9 @@ sceneSubj.pipe(
           cuts: [],
           subscription: null
         };
-      }
+    }
+
+
     else{
       console.log('invalid command:',newcommand.command,',current status:',scene.status);
         return scene;
@@ -180,25 +208,27 @@ sceneSubj.pipe(
 /------------------------------------ */
 function playScene(){
 
-  // 入力されたscene内のセリフについて、
-  // セリフ間に指定秒のディレイを入れつつ順に再生
+  // Playing Actions in a Cut
+  // inserting N ms dekay after each action. 
+  const actionsSubj = new Observable(subscriber => {
 
-  const inputSubj = new Observable(subscriber => {
-    // waitMSec待ってから次の後を出力
-    const nextword = (waitMSec, input) => {
+    // Promise that outputs an Action, then waits waitMSec
+    const nextword = (waitMSec, action) => {
       return new Promise(resolve => {
-        subscriber.next(input);
+        // output an action
+        subscriber.next(action);
         setTimeout(() => {
           resolve();
         }, waitMSec);
       }); 
     };
 
-    // 配列を順番にPromiseで処理
+    let isPlaying = true;
+    // Sequential execution of nextword Promises
     const sequential = function(array) {
       array.reduce((promise, val) => {
         return promise.then(() => {
-            if(sceneSubj.getValue().command == SCENE_COMMAND_CANCEL){
+            if(!isPlaying){
               throw new Error();
             }
             return nextword(
@@ -211,27 +241,31 @@ function playScene(){
         )
       }, Promise.resolve())
       .then(() => {
-        sceneSubj.next(
-          {
-            command: SCENE_COMMAND_FINISH,
-          });
-
-        sceneSubj.next(
-          {
-            command: SCENE_COMMAND_PLAY, 
-            scene: loadNextScene(), 
-          } as SceneCommand);
+        // A Cut has been completed 
+        if(isPlaying){
+          sceneSubj.next(
+            {
+              command: SCENE_COMMAND_PUSH_CUT, 
+              cuts: loadNextCut(), 
+            } as SceneCommand);
+        }
+        else{
+          subscriber.complete();
+        } 
       });
-
     };
-    sequential(sceneSubj.getValue().scene);
+    sequential(sceneSubj.getValue().cuts);
+    
+    // Provide a way of canceling and disposing the interval resource
+    return function unsubscribe() {
+      isPlaying = false;
+    };
   });
  
 
   // 入力されたセリフについて
   // 文字間に指定秒のディレイを入れつつ一文字ずつ表示
-
-  const chatterObs = inputSubj.pipe(
+  const chatterObs = actionsSubj.pipe(
     concatMap(input =>
       interval(input.interval).pipe(
         // 入力文字列を input.interval 間隔で一文字ずつ表示する
@@ -249,22 +283,20 @@ function playScene(){
         take(input.str.length)
       )
     )
-  );
-
-chatterObs.subscribe(
-   );
-  return chatterObs.subscribe(
+  ).subscribe(
     out => (document.body.innerHTML += out)
   );
+  return chatterObs;
+
 };
 
 
 
 
 // Test for cancel command
-
+/*
 setTimeout(()=> sceneSubj.next(
     {
       command: SCENE_COMMAND_CANCEL,
-    }), 7100);
-  
+    }), 9000);
+*/
