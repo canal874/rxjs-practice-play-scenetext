@@ -31,8 +31,7 @@ const SCENE_COMMAND_NONE = 'none';
 const SCENE_COMMAND_PLAY = 'play';
 const SCENE_COMMAND_PUSH_CUT = 'push_cut'; // Add new cut after the last cut
 const SCENE_COMMAND_PAUSE = 'pause';
-const SCENE_COMMAND_CANCEL = 'cancel'; // Cancel playing
-const SCENE_COMMAND_FINISH = 'finish'; // Successful termination
+const SCENE_COMMAND_STOP = 'stop';
 
 // CUT: sequence of ACTIONS
 const CUT01 = [
@@ -92,6 +91,9 @@ sceneSubj.pipe(
       else if(newcommand.cuts.length == 0){
         console.log('All cuts have been played. ');
 
+        // Stop to subscribe chatterObs
+        scene.subscription.unsubscribe();  
+
         const newstatus = SCENE_STATUS_COMPLETED;
         console.log('status:',scene.status,'=>',newstatus);
 
@@ -109,7 +111,7 @@ sceneSubj.pipe(
           status: newstatus,
           previous_command: newcommand.command,
           cuts: newcommand.cuts,
-          subscription: playScene()
+          subscription: playActions()
         };
       }
     }
@@ -141,14 +143,14 @@ sceneSubj.pipe(
           status: scene.status,
           previous_command: newcommand.command,
           cuts: newcommand.cuts,
-          subscription: playScene()
+          subscription: playActions()
         };
       }
     }
  
 
     // CANCEL
-    else if(newcommand.command == SCENE_COMMAND_CANCEL
+    else if(newcommand.command == SCENE_COMMAND_STOP
               && (scene.status == SCENE_STATUS_PLAYING
                   || scene.status == SCENE_STATUS_PAUSED )){
 
@@ -169,24 +171,6 @@ sceneSubj.pipe(
     }
 
 
-    // FINISH
-    else if(newcommand.command == SCENE_COMMAND_FINISH 
-              && scene.status != SCENE_STATUS_COMPLETED){
-        const newstatus = SCENE_STATUS_COMPLETED;
-        console.log('status:',scene.status,'=>',newstatus);
-      
-        // Stop to subscribe chatteObs
-        scene.subscription.unsubscribe();
-
-        return {
-          status: newstatus,
-          previous_command: newcommand.command,
-          cuts: [],
-          subscription: null
-        };
-    }
-
-
     else{
       console.log('invalid command:',newcommand.command,',current status:',scene.status);
         return scene;
@@ -204,9 +188,9 @@ sceneSubj.pipe(
 
 
 /*------------------------------------
-/ Play Scene
+/ Play Actions
 /------------------------------------ */
-function playScene(){
+function playActions(){
 
   // Playing Actions in a Cut
   // inserting N ms dekay after each action. 
@@ -249,9 +233,6 @@ function playScene(){
               cuts: loadNextCut(), 
             } as SceneCommand);
         }
-        else{
-          subscriber.complete();
-        } 
       });
     };
     sequential(sceneSubj.getValue().cuts);
@@ -294,9 +275,8 @@ function playScene(){
 
 
 // Test for cancel command
-/*
+
 setTimeout(()=> sceneSubj.next(
     {
-      command: SCENE_COMMAND_CANCEL,
-    }), 9000);
-*/
+      command: SCENE_COMMAND_STOP,
+    }), 4000);
