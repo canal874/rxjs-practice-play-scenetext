@@ -1,6 +1,6 @@
 
 import { BehaviorSubject, Subscription, Observable, interval } from "rxjs";
-import { take, map, scan, concatMap } from "rxjs/operators";
+import { take, map, scan, concatMap, filter } from "rxjs/operators";
 
 console.clear();
 
@@ -13,8 +13,8 @@ TODO:
 ・シーンの一時停止とレジューム
 ------------------------------*/
 
-const defaultCharacterDelay = 100;
-const defaultWordDelay = 1500;
+const defaultStrInterval = 100;
+const defaultStrAfterWait = 1000;
 
 interface SceneCommand {
   command: string;
@@ -53,45 +53,52 @@ const SCENE_COMMAND_STOP = 'stop';
 // CUT: sequence of ACTIONS
 const CUT01 = [
   // ACTION
- 
+
   {
-    // Parallel actions (all or race)
-    all: [{ agent: { name: 'Japanese',
-        text: [{ str: 'それは、', interval: 100, afterWait: 1000},
-        { str: 'まるで', interval: 100, afterWait: 1000},
-        { str: '夢のようで、', interval: 100, afterWait: 1000},
-        { str: 'あれ、覚めない、覚めないぞ、', interval: 100, afterWait: 500},
-        { str: 'って思っていて、', interval: 100, afterWait: 1000}]
-      }
+    // Parallel actions ('all' or 'race')
+    all: [{
+      agent: {
+        name: 'Japanese',
+        text: [{ str: 'それは、', interval: 300 },
+        { str: 'まるで、'},
+        { str: '夢のようで、'},
+        { str: 'あれ、覚めない、覚めないぞ、', afterWait: 2500 },
+        { str: 'って思っていて、'}]
+
+      } 
     },
-    { agent: { name: 'English',
-        text: [{ str: 'soreha, ', interval: 100, afterWait: 1000},
-        { str: 'marude', interval: 100, afterWait: 1000},
-        { str: 'yumenoyoude', interval: 100, afterWait: 1000},
-        { str: 'are, samenai, samenaizo', interval: 100, afterWait: 3000},
-        { str: 'tte omotteite,', interval: 100, afterWait: 1000}]
+    {
+      agent: {
+        name: 'English',
+        text: [{ str: 'soreha, ', interval: 100, afterWait: 1000 },
+        { str: 'marude', interval: 100, afterWait: 1000 },
+        { str: 'yumenoyoude', interval: 100, afterWait: 1000 },
+        { str: 'are, samenai, samenaizo', interval: 100, afterWait: 3000 },
+        { str: 'tte omotteite,', interval: 100, afterWait: 1000 }]
       }
     }]
   },
   // Global command
-  { command: { wait: 1000 }},
+  { command: { wait: 3000 } },
   // Single action
-  { agent: { name: 'Japanese', 
-      text: [{ str: 'それがいつまでも続いて。', interval: 100, afterWait: 1000},
-      { str: '・・', interval: 500, afterWait: 2000},
-      { str: 'まだ続いている', interval: 100, afterWait: 1000}]
+  {
+    agent: {
+      name: 'Japanese',
+      text: [{ str: 'それがいつまでも続いて。'},
+      { str: '・・', interval: 500, afterWait: 2000 },
+      { str: 'まだ続いている'}]
     }
   }
 ]
 
 const CUT02 = [
-//  ["それがいつまでも続いて。"],
-//  ["・・", 2000, 500],
-//  ["まだ続いている。"]
+  //  ["それがいつまでも続いて。"],
+  //  ["・・", 2000, 500],
+  //  ["まだ続いている。"]
 ];
 
 // SCENE: sequence of CUTS
-const SCENE01 =  [
+const SCENE01 = [
   CUT01,
   CUT02,
   []
@@ -102,6 +109,10 @@ const SEQUENCE = [
   SCENE01
 ]
 
+const timeout = (ms) => {
+  return new Promise(resolve => setTimeout(resolve, ms))
+};
+
 
 const loadNextCut = () => {
   return SCENE01.shift();
@@ -111,29 +122,29 @@ const loadNextCut = () => {
 / Manage Scene Status
 /------------------------------------ */
 const sceneSubj = new BehaviorSubject({
-   command: SCENE_COMMAND_PLAY,
-   cut: loadNextCut()
-  } as SceneCommand);
+  command: SCENE_COMMAND_PLAY,
+  cut: loadNextCut()
+} as SceneCommand);
 
 sceneSubj.pipe(
   scan((scene: SceneStatus, newcommand: SceneCommand) => {
 
     // PLAY
-    if(newcommand.command == SCENE_COMMAND_PLAY
-               && scene.status != SCENE_STATUS_PLAYING ){
+    if (newcommand.command == SCENE_COMMAND_PLAY
+      && scene.status != SCENE_STATUS_PLAYING) {
 
-      if(newcommand.cut === undefined){
+      if (newcommand.cut === undefined) {
         console.log('Error: scene is undefined. ');
         return scene;
       }
-      else if(newcommand.cut.length == 0){
+      else if (newcommand.cut.length == 0) {
         console.log('All cuts have been played. ');
 
         // Stop to subscribe chatterObs
-        scene.subscription.unsubscribe();  
+        scene.subscription.unsubscribe();
 
         const newstatus = SCENE_STATUS_COMPLETED;
-        console.log('status:',scene.status,'=>',newstatus);
+        console.log('status:', scene.status, '=>', newstatus);
 
         return {
           status: newstatus,
@@ -142,9 +153,9 @@ sceneSubj.pipe(
           subscription: null
         }
       }
-      else{
+      else {
         const newstatus = SCENE_STATUS_PLAYING;
-        console.log('status:',scene.status,'=>',newstatus);
+        console.log('status:', scene.status, '=>', newstatus);
         return {
           status: newstatus,
           previous_command: newcommand.command,
@@ -156,18 +167,18 @@ sceneSubj.pipe(
 
 
     // PUSH CUT
-    if(newcommand.command == SCENE_COMMAND_PUSH_CUT
-       && ( scene.status == SCENE_STATUS_PLAYING || scene.status == SCENE_STATUS_PAUSED )){
+    if (newcommand.command == SCENE_COMMAND_PUSH_CUT
+      && (scene.status == SCENE_STATUS_PLAYING || scene.status == SCENE_STATUS_PAUSED)) {
 
-      if(newcommand.cut === undefined){
+      if (newcommand.cut === undefined) {
         console.log('Error: scene is undefined. ');
         return scene;
       }
-      else if(newcommand.cut.length == 0){
+      else if (newcommand.cut.length == 0) {
         console.log('All cuts have been played. ');
 
         const newstatus = SCENE_STATUS_COMPLETED;
-        console.log('status:',scene.status,'=>',newstatus);
+        console.log('status:', scene.status, '=>', newstatus);
 
         return {
           status: newstatus,
@@ -176,7 +187,7 @@ sceneSubj.pipe(
           subscription: null
         }
       }
-      else{
+      else {
         return {
           status: scene.status,
           previous_command: newcommand.command,
@@ -185,21 +196,21 @@ sceneSubj.pipe(
         };
       }
     }
- 
+
 
     // CANCEL
-    else if(newcommand.command == SCENE_COMMAND_STOP
-              && (scene.status == SCENE_STATUS_PLAYING
-                  || scene.status == SCENE_STATUS_PAUSED )){
+    else if (newcommand.command == SCENE_COMMAND_STOP
+      && (scene.status == SCENE_STATUS_PLAYING
+        || scene.status == SCENE_STATUS_PAUSED)) {
 
       console.log('Scene has been canceled');
-      
+
       const newstatus = SCENE_STATUS_COMPLETED;
-      console.log('status:',scene.status,'=>',newstatus);
+      console.log('status:', scene.status, '=>', newstatus);
 
       // Stop to subscribe chatterObs
-      scene.subscription.unsubscribe();      
-      
+      scene.subscription.unsubscribe();
+
       return {
         status: newstatus,
         previous_command: newcommand.command,
@@ -209,17 +220,17 @@ sceneSubj.pipe(
     }
 
 
-    else{
-      console.log('invalid command:',newcommand.command,',current status:',scene.status);
-        return scene;
+    else {
+      console.log('invalid command:', newcommand.command, ',current status:', scene.status);
+      return scene;
     }
   },
-  { 
-    status: SCENE_STATUS_INITIAL,
-    previous_command: SCENE_COMMAND_NONE,
-    cut: [],
-    subscription: null
-  })
+    {
+      status: SCENE_STATUS_INITIAL,
+      previous_command: SCENE_COMMAND_NONE,
+      cut: [],
+      subscription: null
+    })
 ).subscribe();
 
 
@@ -228,74 +239,67 @@ sceneSubj.pipe(
 /*------------------------------------
 / Play Actions
 /------------------------------------ */
-
-function playActions(cut: Array<Object>){
-  const obs = new Observable(subscriber => {
+function playActions(cut: Array<Object>) {
+  const playOneAction = async (action) => {
     const execAgentAction = async (agent) => {
-      if(agent.hasOwnProperty('text')){
+      if (agent.hasOwnProperty('text')) {
         await playText(agent);
       }
     };
     const execCommand = async (command) => {
-    
-    };
-    const playOneAction = async (action) => {
-      if(action.hasOwnProperty('agent')){
-        // Single action
-        await execAgentAction(action.agent);
-      }
-      else if(action.hasOwnProperty('command')){
-        // Command
-        await execCommand(action.command);
-      }
-      else if(action.hasOwnProperty('all')){
-        // Parallel actions (Promise.all())
-        const arr = [];
-        const actions = action.all;
-        actions.forEach(action => arr.push(execAgentAction(action.agent)));
-        await Promise.all(arr);
-      }
-      else if(action.hasOwnProperty('race')){
-        // Parallel actions (Promise.race())
-        const arr = [];
-        const actions = action.race;
-        actions.forEach(action => arr.push(execAgentAction(action.agent)));
-        await Promise.race(arr);
+      if (command.hasOwnProperty('wait')) {
+        await timeout(command.wait);
       }
     };
-    (async () => {
-      for(let i=0; i<cut.length; i++){
-       await playOneAction(cut[i]);
-      }
-    })();
-  });
-  obs.subscribe();
+    if (action.hasOwnProperty('agent')) {
+      // Single action
+      await execAgentAction(action.agent);
+    }
+    else if (action.hasOwnProperty('command')) {
+      // Command
+      await execCommand(action.command);
+    }
+    else if (action.hasOwnProperty('all')) {
+      // Parallel actions (Promise.all())
+      const arr = [];
+      const actions = action.all;
+      actions.forEach(action => arr.push(execAgentAction(action.agent)));
+      await Promise.all(arr);
+    }
+    else if (action.hasOwnProperty('race')) {
+      // Parallel actions (Promise.race())
+      const arr = [];
+      const actions = action.race;
+      actions.forEach(action => arr.push(execAgentAction(action.agent)));
+      await Promise.race(arr);
+    }
+  };
+  (async () => {
+    for (let i = 0; i < cut.length; i++) {
+      await playOneAction(cut[i]);
+    }
+  })();
+
 };
 
 
-async function playText(agent:Agent){
-  const text:Array<Object> = agent.text as Array<Object>;
-
-  const timeout = (ms) => {
-    return new Promise(resolve => setTimeout(resolve, ms))
-  };
+async function playText(agent: Agent) {
+  const text: Array<Object> = agent.text as Array<Object>;
   await (async () => {
-      for(let i=0; i<text.length; i++){
-        const strAction:StringAction = text[i] as StringAction
-        await playStringAction(agent, strAction);
-        await timeout(strAction.afterWait);
-  }
+    for (let i = 0; i < text.length; i++) {
+      const strAction: StringAction = text[i] as StringAction
+      await playStringAction(agent, strAction);
+      const afterWait = strAction.hasOwnProperty('afterWait') ? strAction.afterWait : defaultStrAfterWait;
+      await timeout(afterWait);
+    }
   })();
 };
 
-function playStringAction(agent: Agent, strAction: StringAction){
+function playStringAction(agent: Agent, strAction: StringAction) {
   return new Promise(resolve => {
-    const timeout = (ms) => {
-      return new Promise(resolve => setTimeout(resolve, ms))
-    };
-    const obs = new Observable(subscriber => {
+
       const printOneChar = async (char, afterWaitMs) => {
-        subscriber.next(char);
+        output(agent, char);
         await timeout(afterWaitMs);
       };
 
@@ -303,16 +307,14 @@ function playStringAction(agent: Agent, strAction: StringAction){
         const chars = strAction.str.split('');
         for (let i = 0; i < chars.length; i++) {
           const char = chars[i];
-          await printOneChar(char, strAction.interval);
+          const interval = strAction.hasOwnProperty('interval') ? strAction.interval : defaultStrInterval;
+          await printOneChar(char, interval);
         }
-        subscriber.complete();
+        resolve();
       })();
-
     });
-    obs.subscribe({
-      next: out => (document.getElementById(agent.name).innerHTML += out),
-      complete: () => resolve()
-    });
+}
 
-  });
+function output(agent, out){
+  document.getElementById(agent.name).innerHTML += out;
 }
