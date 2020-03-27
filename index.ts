@@ -55,23 +55,23 @@ const CUT01 = [
   // ACTION
  
   {
-    // Parallel actions
-    1: { agent: { name: 'Japanese',
+    // Parallel actions (all or race)
+    all: [{ agent: { name: 'Japanese',
         text: [{ str: 'それは、', interval: 100, afterWait: 1000},
         { str: 'まるで', interval: 100, afterWait: 1000},
         { str: '夢のようで、', interval: 100, afterWait: 1000},
-        { str: 'あれ、覚めない、覚めないぞ、', interval: 100, afterWait: 3000},
+        { str: 'あれ、覚めない、覚めないぞ、', interval: 100, afterWait: 500},
         { str: 'って思っていて、', interval: 100, afterWait: 1000}]
       }
     },
-    2: { agent: { name: 'English',
+    { agent: { name: 'English',
         text: [{ str: 'soreha, ', interval: 100, afterWait: 1000},
         { str: 'marude', interval: 100, afterWait: 1000},
         { str: 'yumenoyoude', interval: 100, afterWait: 1000},
         { str: 'are, samenai, samenaizo', interval: 100, afterWait: 3000},
         { str: 'tte omotteite,', interval: 100, afterWait: 1000}]
       }
-    },
+    }]
   },
   // Global command
   { command: { wait: 1000 }},
@@ -240,9 +240,6 @@ function playActions(cut: Array<Object>){
     
     };
     const playOneAction = async (action) => {
-      
-      console.log(action)
-
       if(action.hasOwnProperty('agent')){
         // Single action
         await execAgentAction(action.agent);
@@ -251,18 +248,19 @@ function playActions(cut: Array<Object>){
         // Command
         await execCommand(action.command);
       }
-      else{
-        for(const property in action){
-          // Parallel actions
-          console.log(action[property]);
-          if(action[property].hasOwnProperty('agent')){
-            await execAgentAction(action[property].agent);
-          }
-          else if(action.hasOwnProperty('command')){
-            // Command
-            await execCommand(action[property].command);
-          }
-        }
+      else if(action.hasOwnProperty('all')){
+        // Parallel actions (Promise.all())
+        const arr = [];
+        const actions = action.all;
+        actions.forEach(action => arr.push(execAgentAction(action.agent)));
+        await Promise.all(arr);
+      }
+      else if(action.hasOwnProperty('race')){
+        // Parallel actions (Promise.race())
+        const arr = [];
+        const actions = action.race;
+        actions.forEach(action => arr.push(execAgentAction(action.agent)));
+        await Promise.race(arr);
       }
     };
     (async () => {
@@ -281,7 +279,7 @@ async function playText(agent:Agent){
   const timeout = (ms) => {
     return new Promise(resolve => setTimeout(resolve, ms))
   };
-  (async () => {
+  await (async () => {
       for(let i=0; i<text.length; i++){
         const strAction:StringAction = text[i] as StringAction
         await playStringAction(agent, strAction);
@@ -291,29 +289,30 @@ async function playText(agent:Agent){
 };
 
 function playStringAction(agent: Agent, strAction: StringAction){
-  return new Promise((resolve, reject) => {
-  const timeout = (ms) => {
-    return new Promise(resolve => setTimeout(resolve, ms))
-  };
-  const obs = new Observable(subscriber => {
-    const printOneChar = async (char, afterWaitMs) => {
-      subscriber.next(char);
-      await timeout(afterWaitMs);
+  return new Promise(resolve => {
+    const timeout = (ms) => {
+      return new Promise(resolve => setTimeout(resolve, ms))
     };
+    const obs = new Observable(subscriber => {
+      const printOneChar = async (char, afterWaitMs) => {
+        subscriber.next(char);
+        await timeout(afterWaitMs);
+      };
 
-    (async () => {
-      const chars = strAction.str.split('');
-      for(let i=0; i<chars.length; i++){
-        const char = chars[i];
-        await printOneChar(char, strAction.interval);
-      }
-      subscriber.complete();
-    })();
+      (async () => {
+        const chars = strAction.str.split('');
+        for (let i = 0; i < chars.length; i++) {
+          const char = chars[i];
+          await printOneChar(char, strAction.interval);
+        }
+        subscriber.complete();
+      })();
+
+    });
+    obs.subscribe({
+      next: out => (document.getElementById(agent.name).innerHTML += out),
+      complete: () => resolve()
+    });
 
   });
-  obs.subscribe({
-    next: out => (document.getElementById(agent.name).innerHTML += out),
-    complete: () => resolve()
-  });
-  })
 }
