@@ -57,12 +57,12 @@ const CUT01 = [
       agent: {
         name: 'Japanese',
         text: [{ str: 'それは、', interval: 300 },
-        { str: 'まるで、'},
-        { str: '夢のようで、'},
+        { str: 'まるで、' },
+        { str: '夢のようで、' },
         { str: 'あれ、覚めない、覚めないぞ、', afterWait: 2500 },
-        { str: 'って思っていて、'}]
+        { str: 'って思っていて、' }]
 
-      } 
+      }
     },
     {
       agent: {
@@ -81,9 +81,9 @@ const CUT01 = [
   {
     agent: {
       name: 'Japanese',
-      text: [{ str: 'それがいつまでも続いて。'},
+      text: [{ str: 'それがいつまでも続いて。' },
       { str: '・・', interval: 500, afterWait: 2000 },
-      { str: 'まだ続いている'}]
+      { str: 'まだ続いている' }]
     }
   }
 ]
@@ -114,6 +114,102 @@ const timeout = (ms) => {
 const loadNextCut = () => {
   return SCENE01.shift();
 };
+
+
+
+function renderScene(output) {
+  document.getElementById(output.agent.name).innerHTML += output.data;
+}
+
+const actionSubject = new Observable(subscriber => {
+
+  playActions(sceneSubj.getValue().cut);
+
+  /*------------------------------------
+  / Play Actions
+  /------------------------------------ */
+  function playActions(cut: Array<Object>) {
+    const playOneAction = async (action) => {
+      const execAgentAction = async (agent) => {
+        if (agent.hasOwnProperty('text')) {
+          await playText(agent);
+        }
+      };
+      const execCommand = async (command) => {
+        if (command.hasOwnProperty('wait')) {
+          await timeout(command.wait);
+        }
+      };
+      if (action.hasOwnProperty('agent')) {
+        // Single action
+        await execAgentAction(action.agent);
+      }
+      else if (action.hasOwnProperty('command')) {
+        // Command
+        await execCommand(action.command);
+      }
+      else if (action.hasOwnProperty('all')) {
+        // Parallel actions (Promise.all())
+        const arr = [];
+        const actions = action.all;
+        actions.forEach(action => arr.push(execAgentAction(action.agent)));
+        await Promise.all(arr);
+      }
+      else if (action.hasOwnProperty('race')) {
+        // Parallel actions (Promise.race())
+        const arr = [];
+        const actions = action.race;
+        actions.forEach(action => arr.push(execAgentAction(action.agent)));
+        await Promise.race(arr);
+      }
+    };
+    (async () => {
+      for (let i = 0; i < cut.length; i++) {
+        await playOneAction(cut[i]);
+      }
+    })();
+
+  };
+
+
+  async function playText(agent: Agent) {
+    const text: Array<Object> = agent.text as Array<Object>;
+    await (async () => {
+      for (let i = 0; i < text.length; i++) {
+        const strAction: StringAction = text[i] as StringAction
+        await playStringAction(agent, strAction);
+        const afterWait = strAction.hasOwnProperty('afterWait') ? strAction.afterWait : defaultStrAfterWait;
+        await timeout(afterWait);
+      }
+    })();
+  };
+
+  function playStringAction(agent: Agent, strAction: StringAction) {
+    return new Promise(resolve => {
+
+      const printOneChar = async (char, afterWaitMs) => {
+        subscriber.next({ agent: agent, type: 'text', data: char });
+        await timeout(afterWaitMs);
+      };
+
+      (async () => {
+        const chars = strAction.str.split('');
+        for (let i = 0; i < chars.length; i++) {
+          const char = chars[i];
+          const interval = strAction.hasOwnProperty('interval') ? strAction.interval : defaultStrInterval;
+          await printOneChar(char, interval);
+        }
+        resolve();
+      })();
+    });
+  }
+});
+
+// const actionSubjectFiltered = actionSubject.pipe(filter(output => output.agent.name == 'English'));
+const actionSubjectFiltered = actionSubject.pipe();
+
+
+
 
 /*------------------------------------
 / Manage Scene Status
@@ -157,7 +253,10 @@ sceneSubj.pipe(
           status: newstatus,
           previous_command: newcommand.command,
           cut: newcommand.cut,
-          subscription: playActions(newcommand.cut)
+          subscription: actionSubjectFiltered.subscribe({
+            next: val => renderScene(val)
+          }
+          )
         };
       }
     }
@@ -189,7 +288,10 @@ sceneSubj.pipe(
           status: scene.status,
           previous_command: newcommand.command,
           cut: newcommand.cut,
-          subscription: playActions(newcommand.cut)
+          subscription: actionSubjectFiltered.subscribe({
+            next: val => renderScene(val)
+          }
+          )
         };
       }
     }
@@ -230,88 +332,3 @@ sceneSubj.pipe(
     })
 ).subscribe();
 
-
-
-
-/*------------------------------------
-/ Play Actions
-/------------------------------------ */
-function playActions(cut: Array<Object>) {
-  const playOneAction = async (action) => {
-    const execAgentAction = async (agent) => {
-      if (agent.hasOwnProperty('text')) {
-        await playText(agent);
-      }
-    };
-    const execCommand = async (command) => {
-      if (command.hasOwnProperty('wait')) {
-        await timeout(command.wait);
-      }
-    };
-    if (action.hasOwnProperty('agent')) {
-      // Single action
-      await execAgentAction(action.agent);
-    }
-    else if (action.hasOwnProperty('command')) {
-      // Command
-      await execCommand(action.command);
-    }
-    else if (action.hasOwnProperty('all')) {
-      // Parallel actions (Promise.all())
-      const arr = [];
-      const actions = action.all;
-      actions.forEach(action => arr.push(execAgentAction(action.agent)));
-      await Promise.all(arr);
-    }
-    else if (action.hasOwnProperty('race')) {
-      // Parallel actions (Promise.race())
-      const arr = [];
-      const actions = action.race;
-      actions.forEach(action => arr.push(execAgentAction(action.agent)));
-      await Promise.race(arr);
-    }
-  };
-  (async () => {
-    for (let i = 0; i < cut.length; i++) {
-      await playOneAction(cut[i]);
-    }
-  })();
-
-};
-
-
-async function playText(agent: Agent) {
-  const text: Array<Object> = agent.text as Array<Object>;
-  await (async () => {
-    for (let i = 0; i < text.length; i++) {
-      const strAction: StringAction = text[i] as StringAction
-      await playStringAction(agent, strAction);
-      const afterWait = strAction.hasOwnProperty('afterWait') ? strAction.afterWait : defaultStrAfterWait;
-      await timeout(afterWait);
-    }
-  })();
-};
-
-function playStringAction(agent: Agent, strAction: StringAction) {
-  return new Promise(resolve => {
-
-      const printOneChar = async (char, afterWaitMs) => {
-        output(agent, char);
-        await timeout(afterWaitMs);
-      };
-
-      (async () => {
-        const chars = strAction.str.split('');
-        for (let i = 0; i < chars.length; i++) {
-          const char = chars[i];
-          const interval = strAction.hasOwnProperty('interval') ? strAction.interval : defaultStrInterval;
-          await printOneChar(char, interval);
-        }
-        resolve();
-      })();
-    });
-}
-
-function output(agent, out){
-  document.getElementById(agent.name).innerHTML += out;
-}
