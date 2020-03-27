@@ -1,3 +1,4 @@
+
 import { BehaviorSubject, Subscription, Observable, interval } from "rxjs";
 import { take, map, scan, concatMap } from "rxjs/operators";
 
@@ -46,18 +47,36 @@ const SCENE_COMMAND_STOP = 'stop';
 // CUT: sequence of ACTIONS
 const CUT01 = [
   // ACTION
-  // ['word', delayAfterWord, delayAfterCharacter]
-  ["それは、", 0, 100],
-  ["まるで"],
-  ["夢のようで、"],
-  ["あれ、覚めない、覚めないぞ、", 3000],
-  ["って思っていて、"]
-];
+ 
+  [
+    // Parallel Actions
+    { agent: { name: 'Japanese'}, 
+      text: [{ str: 'それは、', interval: 100, afterWait: 1000},
+      { str: 'まるで', interval: 100, afterWait: 1000},
+      { str: '夢のようで、', interval: 100, afterWait: 1000},
+      { str: 'あれ、覚めない、覚めないぞ、', interval: 100, afterWait: 3000},
+      { str: 'って思っていて、', interval: 100, afterWait: 1000}]
+    },
+    { agent: { name: 'English'}, 
+      text: [{ str: 'soreha, ', interval: 100, afterWait: 1000},
+      { str: 'marude', interval: 100, afterWait: 1000},
+      { str: 'yumenoyoude', interval: 100, afterWait: 1000},
+      { str: 'are, samenai, samenaizo', interval: 100, afterWait: 3000},
+      { str: 'tte omotteite,', interval: 100, afterWait: 1000}]
+    }
+  ],
+  // Single Action
+  { agent: { name: 'Japanese'}, 
+    text: [{ str: 'それがいつまでも続いて。', interval: 100, afterWait: 1000},
+    { str: '・・', interval: 500, afterWait: 2000},
+    { str: 'まだ続いている', interval: 100, afterWait: 1000}]
+  }
+]
 
 const CUT02 = [
-  ["それがいつまでも続いて。"],
-  ["・・", 2000, 500],
-  ["まだ続いている。"]
+//  ["それがいつまでも続いて。"],
+//  ["・・", 2000, 500],
+//  ["まだ続いている。"]
 ];
 
 // SCENE: sequence of CUTS
@@ -77,11 +96,11 @@ const loadNextCut = () => {
   return SCENE01.shift();
 };
 
-
 /*------------------------------------
-/ Pushable Observable Wrapper Class
+// Pushable Observable Wrapper Class
 /------------------------------------ */
-class PushableObservableWrapper {
+
+class PushableObservable {
     queue : Array<any> = [];
     observable : Observable<any> = null;
 
@@ -149,7 +168,6 @@ class PushableObservableWrapper {
 }
 
 
-
 /*------------------------------------
 / Manage Scene Status
 /------------------------------------ */
@@ -192,7 +210,7 @@ sceneSubj.pipe(
           status: newstatus,
           previous_command: newcommand.command,
           cut: newcommand.cut,
-          subscription: playActions()
+          subscription: playActions(newcommand.cut)
         };
       }
     }
@@ -224,7 +242,7 @@ sceneSubj.pipe(
           status: scene.status,
           previous_command: newcommand.command,
           cut: newcommand.cut,
-          subscription: playActions()
+          subscription: playActions(newcommand.cut)
         };
       }
     }
@@ -271,47 +289,39 @@ sceneSubj.pipe(
 /*------------------------------------
 / Play Actions
 /------------------------------------ */
-function playActions(){
+
+
+
+function playActions(cut: Array<Array<any>>){
 
   // Play ations in a Cut
   // inserting N ms dekay after each action. 
-  const actionsSubjWrapper = new PushableObservableWrapper();
-  actionsSubjWrapper.push(sceneSubj.getValue().cut);
+  const actionsSubj = new PushableObservable();
+  actionsSubj.push(sceneSubj.getValue().cut);
 
-  // Play words in a cut
-  // inserting delay after each character
-  const chatterObs = actionsSubjWrapper.observable.pipe(
-    concatMap(input =>
-      interval((input as SpeechAction).interval).pipe(
-        // output characters at input.interval
-        scan(
-          (state, count) => ({
-            arr: state.arr,
-            i: count % (input as SpeechAction).str.length
-          }),
-          {
-            arr: (input as SpeechAction).str.split(""),
-            i: 0
-          }
-        ),
-        map(state => state.arr[state.i]),
-        take((input as SpeechAction).str.length)
-      )
-    )
-  ).subscribe(
-    out => (document.body.innerHTML += out)
-  );
-  return chatterObs;
 
 };
 
 
-
-
-// Test for cancel command
-/*
-setTimeout(()=> sceneSubj.next(
-    {
-      command: SCENE_COMMAND_STOP,
-    }), 4000);
-*/
+function playWords(input: SpeechAction){
+  // Play words in a cut
+  // inserting delay after each character
+  const obs = new Observable(subscriber => {
+    const printOneChar = async (char, afterWaitMs) => {
+      const timeout = (ms) => {
+        return new Promise(resolve => setTimeout(resolve, ms))
+      };
+      subscriber.next(char);
+      await timeout(afterWaitMs);
+    };
+    (async () => {
+     const array = (input as SpeechAction).str.split('');
+      for(let i=0; i<array.length; i++){
+        await printOneChar(array[i],(input as SpeechAction).interval);
+      }
+    })();
+  });
+  obs.subscribe({
+    next: out => (document.body.innerHTML += out)
+  });
+};
