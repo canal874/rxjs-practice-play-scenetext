@@ -28,10 +28,15 @@ interface SceneStatus {
   subscription: Subscription;
 }
 
-interface TextAction {
+interface StringAction {
   str: string;
   interval: number;
   afterWait: number;
+}
+
+interface Agent {
+  name: string;
+  text?: Array<Object>;
 }
 
 const SCENE_STATUS_INITIAL = 'initial';
@@ -59,7 +64,7 @@ const CUT01 = [
         { str: 'って思っていて、', interval: 100, afterWait: 1000}]
       }
     },
-    2: { agent: { name: 'English',  
+    2: { agent: { name: 'English',
         text: [{ str: 'soreha, ', interval: 100, afterWait: 1000},
         { str: 'marude', interval: 100, afterWait: 1000},
         { str: 'yumenoyoude', interval: 100, afterWait: 1000},
@@ -224,36 +229,38 @@ sceneSubj.pipe(
 / Play Actions
 /------------------------------------ */
 
-
-
 function playActions(cut: Array<Object>){
   const obs = new Observable(subscriber => {
-    const agentAction = async (agent) => {
-      playWords(agent.text);
+    const execAgentAction = async (agent) => {
+      if(agent.hasOwnProperty('text')){
+        await playText(agent);
+      }
     };
-    const command = async (command) => {
+    const execCommand = async (command) => {
     
     };
     const playOneAction = async (action) => {
-                  console.log(action)
+      
+      console.log(action)
 
       if(action.hasOwnProperty('agent')){
         // Single action
-        await agentAction(action.agent);
+        await execAgentAction(action.agent);
       }
       else if(action.hasOwnProperty('command')){
         // Command
-        await command(action.command);
+        await execCommand(action.command);
       }
       else{
         for(const property in action){
           // Parallel actions
+          console.log(action[property]);
           if(action[property].hasOwnProperty('agent')){
-            await agentAction(action[property].agent);
+            await execAgentAction(action[property].agent);
           }
           else if(action.hasOwnProperty('command')){
             // Command
-            await command(action[property].command);
+            await execCommand(action[property].command);
           }
         }
       }
@@ -261,35 +268,52 @@ function playActions(cut: Array<Object>){
     (async () => {
       for(let i=0; i<cut.length; i++){
        await playOneAction(cut[i]);
-     }
+      }
     })();
   });
   obs.subscribe();
 };
 
 
-async function playWords(input: TextAction){
-  // Play words in a cut
-  // inserting delay after each character
+async function playText(agent:Agent){
+  const text:Array<Object> = agent.text as Array<Object>;
+
   const timeout = (ms) => {
     return new Promise(resolve => setTimeout(resolve, ms))
   };
-  
+  (async () => {
+      for(let i=0; i<text.length; i++){
+        const strAction:StringAction = text[i] as StringAction
+        await playStringAction(agent, strAction);
+        await timeout(strAction.afterWait);
+  }
+  })();
+};
+
+function playStringAction(agent: Agent, strAction: StringAction){
+  return new Promise((resolve, reject) => {
+  const timeout = (ms) => {
+    return new Promise(resolve => setTimeout(resolve, ms))
+  };
   const obs = new Observable(subscriber => {
-            console.log(input.str)
     const printOneChar = async (char, afterWaitMs) => {
       subscriber.next(char);
       await timeout(afterWaitMs);
     };
-    (async () => {
-      const array = input.str.split('');
-      for(let i=0; i<array.length; i++){
 
-        await printOneChar(array[i],input.interval);
+    (async () => {
+      const chars = strAction.str.split('');
+      for(let i=0; i<chars.length; i++){
+        const char = chars[i];
+        await printOneChar(char, strAction.interval);
       }
+      subscriber.complete();
     })();
+
   });
   obs.subscribe({
-    next: out => (document.body.innerHTML += out)
+    next: out => (document.getElementById(agent.name).innerHTML += out),
+    complete: () => resolve()
   });
-};
+  })
+}
