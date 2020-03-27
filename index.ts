@@ -18,19 +18,20 @@ const defaultWordDelay = 1500;
 
 interface SceneCommand {
   command: string;
-  cut?: Array<Array<string | number>>;
+  cut?: Array<Object>;
 }
 
 interface SceneStatus {
   status: string;
   previous_command: string;
-  cut: Array<Array<string | number>>;
-  subscription: Subscription
+  cut: Array<Object>;
+  subscription: Subscription;
 }
 
-interface SpeechAction {
+interface TextAction {
   str: string;
   interval: number;
+  afterWait: number;
 }
 
 const SCENE_STATUS_INITIAL = 'initial';
@@ -48,28 +49,33 @@ const SCENE_COMMAND_STOP = 'stop';
 const CUT01 = [
   // ACTION
  
-  [
-    // Parallel Actions
-    { agent: { name: 'Japanese'}, 
-      text: [{ str: 'それは、', interval: 100, afterWait: 1000},
-      { str: 'まるで', interval: 100, afterWait: 1000},
-      { str: '夢のようで、', interval: 100, afterWait: 1000},
-      { str: 'あれ、覚めない、覚めないぞ、', interval: 100, afterWait: 3000},
-      { str: 'って思っていて、', interval: 100, afterWait: 1000}]
+  {
+    // Parallel actions
+    1: { agent: { name: 'Japanese',
+        text: [{ str: 'それは、', interval: 100, afterWait: 1000},
+        { str: 'まるで', interval: 100, afterWait: 1000},
+        { str: '夢のようで、', interval: 100, afterWait: 1000},
+        { str: 'あれ、覚めない、覚めないぞ、', interval: 100, afterWait: 3000},
+        { str: 'って思っていて、', interval: 100, afterWait: 1000}]
+      }
     },
-    { agent: { name: 'English'}, 
-      text: [{ str: 'soreha, ', interval: 100, afterWait: 1000},
-      { str: 'marude', interval: 100, afterWait: 1000},
-      { str: 'yumenoyoude', interval: 100, afterWait: 1000},
-      { str: 'are, samenai, samenaizo', interval: 100, afterWait: 3000},
-      { str: 'tte omotteite,', interval: 100, afterWait: 1000}]
+    2: { agent: { name: 'English',  
+        text: [{ str: 'soreha, ', interval: 100, afterWait: 1000},
+        { str: 'marude', interval: 100, afterWait: 1000},
+        { str: 'yumenoyoude', interval: 100, afterWait: 1000},
+        { str: 'are, samenai, samenaizo', interval: 100, afterWait: 3000},
+        { str: 'tte omotteite,', interval: 100, afterWait: 1000}]
+      }
+    },
+  },
+  // Global command
+  { command: { wait: 1000 }},
+  // Single action
+  { agent: { name: 'Japanese', 
+      text: [{ str: 'それがいつまでも続いて。', interval: 100, afterWait: 1000},
+      { str: '・・', interval: 500, afterWait: 2000},
+      { str: 'まだ続いている', interval: 100, afterWait: 1000}]
     }
-  ],
-  // Single Action
-  { agent: { name: 'Japanese'}, 
-    text: [{ str: 'それがいつまでも続いて。', interval: 100, afterWait: 1000},
-    { str: '・・', interval: 500, afterWait: 2000},
-    { str: 'まだ続いている', interval: 100, afterWait: 1000}]
   }
 ]
 
@@ -95,78 +101,6 @@ const SEQUENCE = [
 const loadNextCut = () => {
   return SCENE01.shift();
 };
-
-/*------------------------------------
-// Pushable Observable Wrapper Class
-/------------------------------------ */
-
-class PushableObservable {
-    queue : Array<any> = [];
-    observable : Observable<any> = null;
-
-    constructor(queue?: Array<any>) {
-      if(queue) this.queue = queue;
-      this.observable = this.createObservable();
-    };
-    
-    createObservable = () => {
-      return new Observable(subscriber => {
-        let isPlaying = true;
-
-        // Outputs an Action, then waits waitMSec
-        setInterval(() => {
-          const val = this.queue.shift();
-          if(val){
-            const waitMSec = val.length > 1 ? val[1] : defaultWordDelay;
-            const action = {
-                        str: val.length > 0 ? val[0] : "",
-                        interval: val.length > 2 ? val[2] : defaultCharacterDelay
-                    } as SpeechAction;
-        
-            subscriber.next(action);
-            // wait(3);  
-          }
-          else {
-            // A Cut has been completed 
-            if(isPlaying){
-              sceneSubj.next(
-                {
-                  command: SCENE_COMMAND_PUSH_CUT, 
-                  cut: loadNextCut(), 
-                } as SceneCommand);           
-            }
-            else{
-              
-            }
-          }
-        }, 1000);
-    
-        // Provide a way of canceling and disposing the interval resource
-        return function unsubscribe() {
-          isPlaying = false;
-        };
-      });
-    };
-
-    push(item) {
-      if(item instanceof Array){
-        this.queue.push(...item);
-      }
-      else{
-       this.queue.push(item);
-      }
-    };
-    unshift(item) {
-      this.queue.unshift(item);
-    };
-    pop(){
-      return this.queue.pop();
-    };
-    shift(){
-      return this.queue.shift();
-    }
-}
-
 
 /*------------------------------------
 / Manage Scene Status
@@ -292,32 +226,66 @@ sceneSubj.pipe(
 
 
 
-function playActions(cut: Array<Array<any>>){
+function playActions(cut: Array<Object>){
+  const obs = new Observable(subscriber => {
+    const agentAction = async (agent) => {
+      playWords(agent.text);
+    };
+    const command = async (command) => {
+    
+    };
+    const playOneAction = async (action) => {
+                  console.log(action)
 
-  // Play ations in a Cut
-  // inserting N ms dekay after each action. 
-  const actionsSubj = new PushableObservable();
-  actionsSubj.push(sceneSubj.getValue().cut);
-
-
+      if(action.hasOwnProperty('agent')){
+        // Single action
+        await agentAction(action.agent);
+      }
+      else if(action.hasOwnProperty('command')){
+        // Command
+        await command(action.command);
+      }
+      else{
+        for(const property in action){
+          // Parallel actions
+          if(action[property].hasOwnProperty('agent')){
+            await agentAction(action[property].agent);
+          }
+          else if(action.hasOwnProperty('command')){
+            // Command
+            await command(action[property].command);
+          }
+        }
+      }
+    };
+    (async () => {
+      for(let i=0; i<cut.length; i++){
+       await playOneAction(cut[i]);
+     }
+    })();
+  });
+  obs.subscribe();
 };
 
 
-function playWords(input: SpeechAction){
+async function playWords(input: TextAction){
   // Play words in a cut
   // inserting delay after each character
+  const timeout = (ms) => {
+    return new Promise(resolve => setTimeout(resolve, ms))
+  };
+  
   const obs = new Observable(subscriber => {
+            console.log(input.str)
     const printOneChar = async (char, afterWaitMs) => {
-      const timeout = (ms) => {
-        return new Promise(resolve => setTimeout(resolve, ms))
-      };
       subscriber.next(char);
       await timeout(afterWaitMs);
     };
     (async () => {
-     const array = (input as SpeechAction).str.split('');
+      const array = input.str.split('');
       for(let i=0; i<array.length; i++){
-        await printOneChar(array[i],(input as SpeechAction).interval);
+
+        await printOneChar(array[i],input.interval);
       }
     })();
   });
